@@ -19,7 +19,8 @@ const CommandPatternSchema = z.object({
 export const SshPolicySchema = z.object({
   allowedCommands: z.array(z.union([z.string(), CommandPatternSchema])).optional(),
   maxExecutionMs: z.number().int().positive().optional(),
-  maxOutputBytes: z.number().int().positive().optional()
+  maxOutputBytes: z.number().int().positive().optional(),
+  maxConcurrent: z.number().int().positive().optional()
 });
 
 export const SshCredentialSchema = z
@@ -46,7 +47,8 @@ export const DatabaseProfileSchema = z.object({
   connectionString: SecretDefinitionSchema,
   allowedStatements: z.array(z.string()).optional(),
   maxRows: z.number().int().positive().default(500),
-  maxExecutionMs: z.number().int().positive().default(30000)
+  maxExecutionMs: z.number().int().positive().default(30000),
+  maxConcurrent: z.number().int().positive().default(1)
 });
 
 export const AppConfigSchema = z.object({
@@ -66,6 +68,7 @@ export interface ResolvedSshPolicy {
   allowedCommandPatterns?: RegExp[];
   maxExecutionMs: number;
   maxOutputBytes: number;
+  maxConcurrent: number;
 }
 
 export interface ResolvedSshCredential {
@@ -83,6 +86,7 @@ export interface ResolvedDatabaseProfile {
   allowedStatementPatterns?: RegExp[];
   maxRows: number;
   maxExecutionMs: number;
+  maxConcurrent: number;
 }
 
 export interface ResolvedAppConfig {

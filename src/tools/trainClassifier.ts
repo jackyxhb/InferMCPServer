@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { runTrainingJob } from "../services/trainingService.js";
+import { createProgressReporter } from "../utils/progress.js";
 
 const TrainClassifierInputSchema = z.object({
   profile: z.string().describe("Credential profile for SSH access"),
@@ -28,8 +29,12 @@ export function registerTrainingTool(server: McpServer): void {
       description: "Run classifier training commands on a remote host via SSH",
       inputSchema: TrainClassifierInputSchema.shape
     },
-    async (args) => {
+    async (args, extra) => {
       const input = TrainClassifierInputSchema.parse(args);
+      const total = input.subclasses.length;
+      const progress = createProgressReporter(extra, "trainClassifier");
+
+      progress?.({ progress: 0, total, message: "Preparing training job" });
 
       const results = await runTrainingJob({
         profile: input.profile,
@@ -37,8 +42,18 @@ export function registerTrainingTool(server: McpServer): void {
         datasetPath: input.datasetPath,
         commandTemplate: input.commandTemplate,
         timeoutMs: input.timeoutMs,
-        dryRun: input.dryRun ?? false
+        dryRun: input.dryRun ?? false,
+        signal: extra.signal,
+        onProgress: (update) => {
+          progress?.({
+            progress: update.progress,
+            total,
+            message: update.message
+          });
+        }
       });
+
+      progress?.({ progress: total, total, message: "Training job finished" });
 
       return {
         content: [

@@ -1,5 +1,8 @@
 import { Client, type QueryResult } from "pg";
 import { getConfig } from "../config/index.js";
+import { ConcurrencyLimiter } from "../utils/concurrency.js";
+import { createAbortError } from "../utils/abort.js";
+import type { ProgressUpdate } from "../utils/progress.js";
 import { logger } from "../utils/logger.js";
 
 export interface DatabaseQueryOptions {
@@ -7,6 +10,8 @@ export interface DatabaseQueryOptions {
   rowLimit?: number;
   requestId?: string;
   tool?: string;
+  signal?: AbortSignal;
+  onProgress?: (update: ProgressUpdate) => void;
 }
 
 export interface DatabaseQueryResult {
@@ -15,6 +20,8 @@ export interface DatabaseQueryResult {
   truncated: boolean;
   durationMs: number;
 }
+
+const dbConcurrency = new ConcurrencyLimiter();
 
 function ensureQueryAllowed(query: string, patterns?: RegExp[]): void {
   if (!patterns || patterns.length === 0) {
@@ -48,8 +55,14 @@ export async function executeDatabaseQuery(
   const timeoutMs = Math.min(options.timeoutMs ?? profile.maxExecutionMs, profile.maxExecutionMs);
   const rowLimit = Math.min(options.rowLimit ?? profile.maxRows, profile.maxRows);
 
+  options.onProgress?.({ progress: 0, message: "Waiting for database availability" });
+  const release = await dbConcurrency.acquire(profileName, profile.maxConcurrent, options.signal);
+
   const client = new Client({ connectionString: profile.connectionString });
   const start = Date.now();
+  const abortError = createAbortError("Database query cancelled");
+  let aborted = false;
+  let abortListener: (() => void) | undefined;
 
   logger.info("Executing database query", {
     profile: profileName,
@@ -58,10 +71,38 @@ export async function executeDatabaseQuery(
   });
 
   try {
+    if (options.signal) {
+      if (options.signal.aborted) {
+        aborted = true;
+        throw abortError;
+      }
+
+      abortListener = () => {
+        aborted = true;
+        options.onProgress?.({ progress: 1, message: "Database query cancelled" });
+        if (client.connection?.stream) {
+          client.connection.stream.destroy(abortError);
+        }
+      };
+
+      options.signal.addEventListener("abort", abortListener, { once: true });
+    }
+
+    options.onProgress?.({ progress: 0.1, message: "Connecting to database" });
     await client.connect();
+    if (aborted) {
+      throw abortError;
+    }
+
+    options.onProgress?.({ progress: 0.3, message: "Applying session limits" });
     await applyTimeout(client, timeoutMs);
 
+    options.onProgress?.({ progress: 0.6, message: "Executing query" });
     const result: QueryResult = await client.query({ text: query, values });
+    if (aborted) {
+      throw abortError;
+    }
+
     const rows = result.rows.slice(0, rowLimit);
     const truncated = result.rows.length > rows.length;
     const rowCount = result.rowCount ?? rows.length;
@@ -76,6 +117,8 @@ export async function executeDatabaseQuery(
       durationMs
     });
 
+    options.onProgress?.({ progress: 1, message: "Database query completed" });
+
     return {
       rows,
       rowCount,
@@ -83,6 +126,10 @@ export async function executeDatabaseQuery(
       durationMs
     };
   } catch (error) {
+    if (aborted) {
+      throw abortError;
+    }
+
     logger.error("Database query failed", {
       profile: profileName,
       requestId: options.requestId,
@@ -91,6 +138,17 @@ export async function executeDatabaseQuery(
     });
     throw error;
   } finally {
-    await client.end();
+    if (options.signal && abortListener) {
+      options.signal.removeEventListener("abort", abortListener);
+    }
+    try {
+      await client.end();
+    } catch (endError) {
+      logger.debug("Error closing database client", {
+        profile: profileName,
+        error: endError instanceof Error ? endError.message : String(endError)
+      });
+    }
+    release();
   }
 }

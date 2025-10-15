@@ -154,7 +154,8 @@ function resolveSshPolicy(profileName: string, credential: SshCredential, origin
   return {
     allowedCommandPatterns,
     maxExecutionMs: policy.maxExecutionMs ?? DEFAULT_SSH_MAX_EXECUTION_MS,
-    maxOutputBytes: policy.maxOutputBytes ?? DEFAULT_SSH_MAX_OUTPUT_BYTES
+    maxOutputBytes: policy.maxOutputBytes ?? DEFAULT_SSH_MAX_OUTPUT_BYTES,
+    maxConcurrent: policy.maxConcurrent ?? 1
   };
 }
 
@@ -192,7 +193,8 @@ function resolveDatabaseProfile(
     connectionString,
     allowedStatementPatterns,
     maxRows: profile.maxRows,
-    maxExecutionMs: profile.maxExecutionMs
+    maxExecutionMs: profile.maxExecutionMs,
+    maxConcurrent: profile.maxConcurrent ?? 1
   };
 }
 

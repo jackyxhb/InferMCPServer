@@ -17,7 +17,8 @@
           "^/usr/local/bin/train_classifier\\b"
         ],
         "maxExecutionMs": 900000,
-        "maxOutputBytes": 1048576
+        "maxOutputBytes": 1048576,
+        "maxConcurrent": 1
       }
     }
   },
@@ -31,7 +32,8 @@
         "^\\s*WITH\\b"
       ],
       "maxRows": 1000,
-      "maxExecutionMs": 20000
+      "maxExecutionMs": 20000,
+      "maxConcurrent": 2
     }
   },
   "training": {

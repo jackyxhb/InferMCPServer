@@ -4,6 +4,7 @@ import {
   executeDatabaseQuery,
   type DatabaseQueryResult
 } from "../services/databaseService.js";
+import { createProgressReporter } from "../utils/progress.js";
 
 const DbQueryInputSchema = z.object({
   profile: z.string().describe("Database profile to use"),
@@ -31,6 +32,11 @@ export function registerDbTool(server: McpServer): void {
       outputSchema: DbQueryOutputShape
     },
     async (args, extra) => {
+      const progress = createProgressReporter(extra, "dbQuery");
+      const total = 1;
+
+      progress?.({ progress: 0, total, message: "Dispatching database query" });
+
       const result: DatabaseQueryResult = await executeDatabaseQuery(
         args.profile,
         args.query,
@@ -39,7 +45,15 @@ export function registerDbTool(server: McpServer): void {
           timeoutMs: args.timeoutMs,
           rowLimit: args.rowLimit,
           requestId: String(extra.requestId),
-          tool: "dbQuery"
+          tool: "dbQuery",
+          signal: extra.signal,
+          onProgress: (update) => {
+            progress?.({
+              progress: update.progress,
+              total,
+              message: update.message
+            });
+          }
         }
       );
 

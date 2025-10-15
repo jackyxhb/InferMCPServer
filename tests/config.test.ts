@@ -38,6 +38,7 @@ describe("config loader", () => {
     expect(config.sshProfiles.training.privateKey).toBeUndefined();
     expect(config.sshProfiles.training.policy.maxExecutionMs).toBeGreaterThan(0);
     expect(config.sshProfiles.training.policy.maxOutputBytes).toBeGreaterThan(0);
+    expect(config.sshProfiles.training.policy.maxConcurrent).toBe(1);
   });
 
   it("resolves file-based secrets relative to the config file", () => {
@@ -86,5 +87,6 @@ describe("config loader", () => {
     );
     expect(config.databaseProfiles.metadata.allowedStatementPatterns).toHaveLength(1);
     expect(config.databaseProfiles.metadata.maxRows).toBe(10);
+    expect(config.databaseProfiles.metadata.maxConcurrent).toBe(1);
   });
 });

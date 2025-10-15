@@ -12,6 +12,7 @@ This is an MCP (Model Context Protocol) server providing resource access via SSH
 
 - SSH command execution enforced through configured profiles, command allowlists, and output quotas
 - PostgreSQL database queries limited to configured connections and statement patterns
+- Per-profile concurrency limits with cancellation-aware execution and progress notifications
 - Classifier training orchestration via SSH profiles
 
 ## Configuration
@@ -51,8 +52,8 @@ Secrets can be provided inline, via environment variables, or read from disk. Ex
 }
 ```
 
-- `sshProfiles` define reusable credentials for tools such as `sshExecute` and `trainClassifier`. For `password`, `privateKey`, or `passphrase`, supply either a raw string, `{ "env": "VAR_NAME" }`, or `{ "path": "relative/or/absolute" }`. Base64-encoded files are supported with `{ "path": "...", "encoding": "base64" }`. Policies control command allowlists, maximum runtime, and captured output size.
-- `databaseProfiles` centralise PostgreSQL access. Statements must match the configured regex allowlists and respect row/time limits.
+- `sshProfiles` define reusable credentials for tools such as `sshExecute` and `trainClassifier`. For `password`, `privateKey`, or `passphrase`, supply either a raw string, `{ "env": "VAR_NAME" }`, or `{ "path": "relative/or/absolute" }`. Base64-encoded files are supported with `{ "path": "...", "encoding": "base64" }`. Policies control command allowlists, maximum runtime, captured output size, and per-profile `maxConcurrent` slots.
+- `databaseProfiles` centralise PostgreSQL access. Statements must match the configured regex allowlists and respect row/time limits, with `maxConcurrent` restricting simultaneous queries per profile.
 - `training` controls defaults for classifier jobs.
 
 ## Integration

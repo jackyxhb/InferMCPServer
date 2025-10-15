@@ -5,6 +5,7 @@ import {
   type SshCommandOptions,
   type SshCommandResult
 } from "../services/sshService.js";
+import { createProgressReporter } from "../utils/progress.js";
 
 const SshExecuteInputSchema = z.object({
   profile: z.string().describe("SSH credential profile to use"),
@@ -40,11 +41,24 @@ export function registerSshTool(server: McpServer): void {
       outputSchema: SshExecuteOutputShape
     },
     async (args, extra) => {
+      const progress = createProgressReporter(extra, "sshExecute");
+      const total = 1;
+
+      progress?.({ progress: 0, total, message: "Scheduling SSH command" });
+
       const options: SshCommandOptions = {
         cwd: args.cwd,
         env: args.env,
         timeoutMs: args.timeoutMs,
-        maxOutputBytes: args.maxOutputBytes
+        maxOutputBytes: args.maxOutputBytes,
+        signal: extra.signal,
+        onProgress: (update) => {
+          progress?.({
+            progress: update.progress,
+            total,
+            message: update.message
+          });
+        }
       };
 
       const result: SshCommandResult = await executeSshCommand(

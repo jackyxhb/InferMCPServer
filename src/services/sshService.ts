@@ -1,5 +1,8 @@
 import { Client as SshClient, type ConnectConfig } from "ssh2";
 import { getConfig } from "../config/index.js";
+import { ConcurrencyLimiter } from "../utils/concurrency.js";
+import { createAbortError } from "../utils/abort.js";
+import type { ProgressUpdate } from "../utils/progress.js";
 import { logger } from "../utils/logger.js";
 
 export interface SshCommandOptions {
@@ -7,6 +10,8 @@ export interface SshCommandOptions {
   cwd?: string;
   env?: Record<string, string>;
   maxOutputBytes?: number;
+  signal?: AbortSignal;
+  onProgress?: (update: ProgressUpdate) => void;
 }
 
 export interface SshExecutionMetadata {
@@ -32,6 +37,8 @@ interface TruncatingBuffer {
   isTruncated(): boolean;
   size(): number;
 }
+
+const sshConcurrency = new ConcurrencyLimiter();
 
 function createTruncatingBuffer(limit: number): TruncatingBuffer {
   const chunks: Buffer[] = [];
@@ -103,6 +110,9 @@ export async function executeSshCommand(
   const timeoutLimit = Math.min(options.timeoutMs ?? profile.policy.maxExecutionMs, profile.policy.maxExecutionMs);
   const outputLimit = Math.min(options.maxOutputBytes ?? profile.policy.maxOutputBytes, profile.policy.maxOutputBytes);
 
+  options.onProgress?.({ progress: 0, message: "Waiting for SSH availability" });
+  const release = await sshConcurrency.acquire(profileName, profile.policy.maxConcurrent, options.signal);
+
   const connectionConfig: ConnectConfig = {
     host: profile.host,
     port: profile.port,
@@ -128,104 +138,152 @@ export async function executeSshCommand(
     tool: metadata.tool,
     command
   });
+  options.onProgress?.({ progress: 0.1, message: "Connecting to remote host" });
 
-  return new Promise((resolve, reject) => {
-    const sshClient = new SshClient();
-    let timeoutHandle: NodeJS.Timeout | undefined;
+  try {
+    return await new Promise((resolve, reject) => {
+      const sshClient = new SshClient();
+      let timeoutHandle: NodeJS.Timeout | undefined;
+      let aborted = false;
+      let settled = false;
+      let abortListener: (() => void) | undefined;
 
-    const stdoutBuffer = createTruncatingBuffer(outputLimit);
-    const stderrBuffer = createTruncatingBuffer(outputLimit);
+      const stdoutBuffer = createTruncatingBuffer(outputLimit);
+      const stderrBuffer = createTruncatingBuffer(outputLimit);
 
-    const cleanup = () => {
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-        timeoutHandle = undefined;
-      }
-      sshClient.end();
-    };
+      const finalize = (executor: () => void) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        executor();
+      };
 
-    const onTimeout = () => {
-      cleanup();
-      logger.warn("SSH command timed out", {
-        profile: profileName,
-        requestId: metadata.requestId,
-        tool: metadata.tool,
-        timeoutMs: timeoutLimit
-      });
-      reject(new Error(`SSH command timed out after ${timeoutLimit} ms`));
-    };
+      const cleanup = () => {
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = undefined;
+        }
+        if (abortListener && options.signal) {
+          options.signal.removeEventListener("abort", abortListener);
+        }
+        sshClient.end();
+      };
 
-    sshClient
-      .on("ready", () => {
-        const execOptions = {
-          cwd: options.cwd,
-          env: options.env
-        };
-
-        sshClient.exec(command, execOptions, (err, stream) => {
-          if (err) {
-            cleanup();
-            reject(err);
-            return;
-          }
-
-          let exitCode: number | null = null;
-          let signal: string | undefined;
-
-          stream
-            .on("close", (code: number | null, signalName?: string) => {
-              exitCode = code;
-              signal = signalName ?? undefined;
-              cleanup();
-
-              const durationMs = Date.now() - start;
-              const result: SshCommandResult = {
-                stdout: stdoutBuffer.toString(),
-                stderr: stderrBuffer.toString(),
-                truncated: {
-                  stdout: stdoutBuffer.isTruncated(),
-                  stderr: stderrBuffer.isTruncated()
-                },
-                exitCode,
-                signal,
-                durationMs
-              };
-
-              logger.info("SSH command completed", {
-                profile: profileName,
-                requestId: metadata.requestId,
-                tool: metadata.tool,
-                exitCode,
-                signal,
-                durationMs,
-                stdoutBytes: stdoutBuffer.size(),
-                stderrBytes: stderrBuffer.size(),
-                stdoutTruncated: result.truncated.stdout,
-                stderrTruncated: result.truncated.stderr
-              });
-
-              resolve(result);
-            })
-            .on("data", (chunk: Buffer) => {
-              stdoutBuffer.push(chunk);
-            })
-            .stderr.on("data", (chunk: Buffer) => {
-              stderrBuffer.push(chunk);
-            });
-        });
-      })
-      .on("error", (err) => {
+      const rejectWithError = (error: Error) => {
         cleanup();
-        logger.error("SSH command failed", {
+        finalize(() => reject(error));
+      };
+
+      const onTimeout = () => {
+        options.onProgress?.({ progress: 1, message: "SSH command timed out" });
+        logger.warn("SSH command timed out", {
           profile: profileName,
           requestId: metadata.requestId,
           tool: metadata.tool,
-          error: err.message
+          timeoutMs: timeoutLimit
         });
-        reject(err);
-      })
-      .connect(connectionConfig);
+        rejectWithError(new Error(`SSH command timed out after ${timeoutLimit} ms`));
+      };
 
-    timeoutHandle = setTimeout(onTimeout, timeoutLimit);
-  });
+      if (options.signal) {
+        if (options.signal.aborted) {
+          rejectedDueToAbort();
+          return;
+        }
+
+        abortListener = () => rejectedDueToAbort();
+        options.signal.addEventListener("abort", abortListener, { once: true });
+      }
+
+      function rejectedDueToAbort(): void {
+        aborted = true;
+        options.onProgress?.({ progress: 1, message: "SSH command cancelled" });
+        sshClient.destroy();
+        rejectWithError(createAbortError("SSH command cancelled"));
+      }
+
+      sshClient
+        .on("ready", () => {
+          if (aborted) {
+            rejectWithError(createAbortError("SSH command cancelled"));
+            return;
+          }
+
+          options.onProgress?.({ progress: 0.4, message: "Executing remote command" });
+
+          const execOptions = {
+            cwd: options.cwd,
+            env: options.env
+          };
+
+          sshClient.exec(command, execOptions, (err, stream) => {
+            if (err) {
+              rejectWithError(err);
+              return;
+            }
+
+            let exitCode: number | null = null;
+            let signal: string | undefined;
+
+            stream
+              .on("close", (code: number | null, signalName?: string) => {
+                exitCode = code;
+                signal = signalName ?? undefined;
+                cleanup();
+
+                const durationMs = Date.now() - start;
+                const result: SshCommandResult = {
+                  stdout: stdoutBuffer.toString(),
+                  stderr: stderrBuffer.toString(),
+                  truncated: {
+                    stdout: stdoutBuffer.isTruncated(),
+                    stderr: stderrBuffer.isTruncated()
+                  },
+                  exitCode,
+                  signal,
+                  durationMs
+                };
+
+                logger.info("SSH command completed", {
+                  profile: profileName,
+                  requestId: metadata.requestId,
+                  tool: metadata.tool,
+                  exitCode,
+                  signal,
+                  durationMs,
+                  stdoutBytes: stdoutBuffer.size(),
+                  stderrBytes: stderrBuffer.size(),
+                  stdoutTruncated: result.truncated.stdout,
+                  stderrTruncated: result.truncated.stderr
+                });
+
+                options.onProgress?.({ progress: 1, message: "SSH command completed" });
+                finalize(() => resolve(result));
+              })
+              .on("data", (chunk: Buffer) => {
+                stdoutBuffer.push(chunk);
+              })
+              .stderr.on("data", (chunk: Buffer) => {
+                stderrBuffer.push(chunk);
+              });
+          });
+        })
+        .on("error", (err) => {
+          options.onProgress?.({ progress: 1, message: "SSH command failed" });
+          logger.error("SSH command failed", {
+            profile: profileName,
+            requestId: metadata.requestId,
+            tool: metadata.tool,
+            error: err.message
+          });
+          rejectWithError(err);
+        })
+        .connect(connectionConfig);
+
+      timeoutHandle = setTimeout(onTimeout, timeoutLimit);
+    });
+  } finally {
+    release();
+  }
 }
