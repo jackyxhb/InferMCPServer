@@ -1,5 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { resolve as resolvePath } from "node:path";
+import { pathToFileURL } from "node:url";
 
 interface SimulatorOptions {
   command: string;
@@ -100,7 +102,7 @@ async function createTransport(options: SimulatorOptions): Promise<StdioClientTr
   return transport;
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const parsed = parseArgs();
   const options = resolveSimulatorOptions();
   const client = new Client({ name: "infer-mcp-simulator", version: "1.0.0" });
@@ -122,8 +124,22 @@ async function main(): Promise<void> {
     await transport.close();
   }
 }
+function isDirectExecution(): boolean {
+  if (!process.argv[1]) {
+    return false;
+  }
 
-void main().catch((error) => {
-  console.error("Simulator failed:", error);
-  process.exit(1);
-});
+  try {
+    const invokedUrl = pathToFileURL(resolvePath(process.argv[1])).href;
+    return invokedUrl === import.meta.url;
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectExecution()) {
+  void main().catch((error) => {
+    console.error("Simulator failed:", error);
+    process.exit(1);
+  });
+}
