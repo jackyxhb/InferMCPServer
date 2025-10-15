@@ -1,11 +1,13 @@
 import "dotenv/config";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
 import {
   AppConfigSchema,
   type AppConfig,
   type ResolvedAppConfig,
+  type ResolvedDatabaseProfile,
   type ResolvedSshCredential,
+  type ResolvedSshPolicy,
   type SecretDefinition,
   type SshCredential,
   type TrainingConfig
@@ -16,6 +18,9 @@ interface ConfigSource {
   baseDir: string;
   origin: string;
 }
+
+const DEFAULT_SSH_MAX_EXECUTION_MS = 5 * 60 * 1000;
+const DEFAULT_SSH_MAX_OUTPUT_BYTES = 512 * 1024; // 512 KB
 
 let cachedConfig: ResolvedAppConfig | null = null;
 
@@ -87,6 +92,14 @@ function resolveSecret(
 
   if ("path" in definition) {
     const resolvedPath = resolvePath(baseDir, definition.path);
+    if (!existsSync(resolvedPath)) {
+      if (definition.optional) {
+        return undefined;
+      }
+
+      throw new Error(`Secret file not found for ${label}: ${resolvedPath}`);
+    }
+
     const fileContents = readFileSync(resolvedPath, "utf8");
     if (definition.encoding === "base64") {
       const sanitized = fileContents.replace(/\s+/g, "");
@@ -111,7 +124,8 @@ function resolveSshCredential(
     username: credential.username,
     password: resolveSecret(credential.password, `sshProfiles.${profileName}.password`, baseDir, origin),
     privateKey: resolveSecret(credential.privateKey, `sshProfiles.${profileName}.privateKey`, baseDir, origin),
-    passphrase: resolveSecret(credential.passphrase, `sshProfiles.${profileName}.passphrase`, baseDir, origin)
+    passphrase: resolveSecret(credential.passphrase, `sshProfiles.${profileName}.passphrase`, baseDir, origin),
+    policy: resolveSshPolicy(profileName, credential, origin)
   };
 
   if (!resolved.password && !resolved.privateKey) {
@@ -121,6 +135,65 @@ function resolveSshCredential(
   }
 
   return resolved;
+}
+
+function resolveSshPolicy(profileName: string, credential: SshCredential, origin: string): ResolvedSshPolicy {
+  const policy = credential.policy ?? {};
+  const allowedCommandPatterns = policy.allowedCommands?.map((entry, index) => {
+    const pattern = typeof entry === "string" ? entry : entry.pattern;
+    try {
+      return new RegExp(pattern);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Invalid regex '${pattern}' in sshProfiles.${profileName}.policy.allowedCommands[${index}] (origin: ${origin}): ${message}`
+      );
+    }
+  });
+
+  return {
+    allowedCommandPatterns,
+    maxExecutionMs: policy.maxExecutionMs ?? DEFAULT_SSH_MAX_EXECUTION_MS,
+    maxOutputBytes: policy.maxOutputBytes ?? DEFAULT_SSH_MAX_OUTPUT_BYTES
+  };
+}
+
+function resolveDatabaseProfile(
+  profileName: string,
+  profile: AppConfig["databaseProfiles"][string],
+  baseDir: string,
+  origin: string
+): ResolvedDatabaseProfile {
+  const connectionString = resolveSecret(
+    profile.connectionString,
+    `databaseProfiles.${profileName}.connectionString`,
+    baseDir,
+    origin
+  );
+
+  if (!connectionString) {
+    throw new Error(
+      `Database profile '${profileName}' resolved without a connection string (origin: ${origin})`
+    );
+  }
+
+  const allowedStatementPatterns = profile.allowedStatements?.map((pattern, index) => {
+    try {
+      return new RegExp(pattern, "i");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Invalid regex '${pattern}' in databaseProfiles.${profileName}.allowedStatements[${index}] (origin: ${origin}): ${message}`
+      );
+    }
+  });
+
+  return {
+    connectionString,
+    allowedStatementPatterns,
+    maxRows: profile.maxRows,
+    maxExecutionMs: profile.maxExecutionMs
+  };
 }
 
 function resolveTrainingConfig(training: TrainingConfig): TrainingConfig {
@@ -135,8 +208,14 @@ function resolveConfig(source: ConfigSource): ResolvedAppConfig {
     sshProfiles[name] = resolveSshCredential(name, profile, source.baseDir, source.origin);
   }
 
+  const databaseProfiles: Record<string, ResolvedDatabaseProfile> = {};
+  for (const [name, profile] of Object.entries(parsed.databaseProfiles)) {
+    databaseProfiles[name] = resolveDatabaseProfile(name, profile, source.baseDir, source.origin);
+  }
+
   return {
     sshProfiles,
+    databaseProfiles,
     training: resolveTrainingConfig(parsed.training),
     raw: parsed
   };

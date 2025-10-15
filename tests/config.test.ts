@@ -10,12 +10,14 @@ describe("config loader", () => {
     delete process.env.INFER_MCP_CONFIG_PATH;
     delete process.env.TRAINING_CLUSTER_PASSWORD;
     delete process.env.TRAINING_CLUSTER_KEY_PASSPHRASE;
+    delete process.env.TRAINING_METADATA_DB_URL;
     refreshConfig();
   });
 
   it("returns defaults when no env is provided", () => {
     const config = loadConfig();
     expect(config.sshProfiles).toEqual({});
+    expect(config.databaseProfiles).toEqual({});
     expect(config.training.defaultTimeoutMs).toBeGreaterThan(0);
   });
 
@@ -34,6 +36,8 @@ describe("config loader", () => {
     const config = loadConfig();
     expect(config.sshProfiles.training.password).toBe("super-secret");
     expect(config.sshProfiles.training.privateKey).toBeUndefined();
+    expect(config.sshProfiles.training.policy.maxExecutionMs).toBeGreaterThan(0);
+    expect(config.sshProfiles.training.policy.maxOutputBytes).toBeGreaterThan(0);
   });
 
   it("resolves file-based secrets relative to the config file", () => {
@@ -61,5 +65,26 @@ describe("config loader", () => {
     expect(config.sshProfiles.training.privateKey).toContain("PRIVATE KEY CONTENT");
 
     rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("resolves database profile connection strings from environment", () => {
+    process.env.TRAINING_METADATA_DB_URL = "postgres://user:pass@localhost:5432/db";
+    process.env.INFER_MCP_CONFIG = JSON.stringify({
+      databaseProfiles: {
+        metadata: {
+          connectionString: { env: "TRAINING_METADATA_DB_URL" },
+          allowedStatements: ["^\\s*SELECT"],
+          maxRows: 10,
+          maxExecutionMs: 5000
+        }
+      }
+    });
+
+    const config = loadConfig();
+    expect(config.databaseProfiles.metadata.connectionString).toBe(
+      "postgres://user:pass@localhost:5432/db"
+    );
+    expect(config.databaseProfiles.metadata.allowedStatementPatterns).toHaveLength(1);
+    expect(config.databaseProfiles.metadata.maxRows).toBe(10);
   });
 });

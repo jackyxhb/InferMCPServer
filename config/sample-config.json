@@ -10,7 +10,28 @@
       "passphrase": {
         "env": "TRAINING_CLUSTER_KEY_PASSPHRASE",
         "optional": true
+      },
+      "policy": {
+        "allowedCommands": [
+          "^python\\s+train.py\\b",
+          "^/usr/local/bin/train_classifier\\b"
+        ],
+        "maxExecutionMs": 900000,
+        "maxOutputBytes": 1048576
       }
+    }
+  },
+  "databaseProfiles": {
+    "training-metadata": {
+      "connectionString": {
+        "env": "TRAINING_METADATA_DB_URL"
+      },
+      "allowedStatements": [
+        "^\\s*SELECT\\b",
+        "^\\s*WITH\\b"
+      ],
+      "maxRows": 1000,
+      "maxExecutionMs": 20000
     }
   },
   "training": {

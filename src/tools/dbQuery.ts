@@ -1,33 +1,59 @@
-import { z } from "zod";
-import { Client as PgClient } from "pg";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import {
+  executeDatabaseQuery,
+  type DatabaseQueryResult
+} from "../services/databaseService.js";
+
+const DbQueryInputSchema = z.object({
+  profile: z.string().describe("Database profile to use"),
+  query: z.string().min(1).describe("SQL query to execute"),
+  parameters: z.array(z.unknown()).optional().describe("Positional parameters for the query"),
+  timeoutMs: z.number().int().positive().optional().describe("Query timeout in milliseconds"),
+  rowLimit: z.number().int().positive().optional().describe("Override maximum number of rows to return")
+});
+
+const DbQueryOutputShape = {
+  rows: z.array(z.record(z.string(), z.unknown())),
+  rowCount: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+  durationMs: z.number().int().nonnegative()
+};
+
+const DbQueryOutputSchema = z.object(DbQueryOutputShape);
 
 export function registerDbTool(server: McpServer): void {
   server.registerTool(
     "dbQuery",
     {
-      description: "Execute a SQL query on a PostgreSQL database",
-      inputSchema: {
-        connectionString: z.string().describe("Database connection string"),
-        query: z.string().describe("SQL query to execute")
-      }
+      description: "Execute a SQL query on a PostgreSQL database using a configured profile",
+      inputSchema: DbQueryInputSchema.shape,
+      outputSchema: DbQueryOutputShape
     },
-    async (args) => {
-      const client = new PgClient(args.connectionString);
-      await client.connect();
-      try {
-        const result = await client.query(args.query);
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result.rows)
-            }
-          ]
-        };
-      } finally {
-        await client.end();
-      }
+    async (args, extra) => {
+      const result: DatabaseQueryResult = await executeDatabaseQuery(
+        args.profile,
+        args.query,
+        args.parameters,
+        {
+          timeoutMs: args.timeoutMs,
+          rowLimit: args.rowLimit,
+          requestId: String(extra.requestId),
+          tool: "dbQuery"
+        }
+      );
+
+      const structuredContent: Record<string, unknown> = {
+        rows: result.rows,
+        rowCount: result.rowCount,
+        truncated: result.truncated,
+        durationMs: result.durationMs
+      };
+
+      return {
+        content: [],
+        structuredContent
+      };
     }
   );
 }

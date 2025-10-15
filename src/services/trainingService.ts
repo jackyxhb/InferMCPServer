@@ -1,5 +1,9 @@
 import { getConfig } from "../config/index.js";
-import { executeSshCommand, type SshCommandOptions, type SshCommandResult } from "./sshService.js";
+import {
+  executeSshCommand,
+  type SshCommandOptions,
+  type SshCommandResult
+} from "./sshService.js";
 
 export interface TrainingJobInput {
   profile: string;
@@ -13,7 +17,6 @@ export interface TrainingJobInput {
 export interface TrainingJobResult extends SshCommandResult {
   subclass: string;
   command: string;
-  durationMs: number;
   dryRun: boolean;
 }
 
@@ -35,18 +38,17 @@ export async function runTrainingJob(input: TrainingJobInput): Promise<TrainingJ
   const results: TrainingJobResult[] = [];
   for (const subclass of input.subclasses) {
     const command = buildCommand(template, subclass, input.datasetPath);
-    const start = Date.now();
-
     if (input.dryRun) {
       results.push({
         subclass,
         command,
-        durationMs: 0,
         dryRun: true,
         stdout: "",
         stderr: "",
         exitCode: null,
-        signal: undefined
+        signal: undefined,
+        truncated: { stdout: false, stderr: false },
+        durationMs: 0
       });
       continue;
     }
@@ -55,18 +57,15 @@ export async function runTrainingJob(input: TrainingJobInput): Promise<TrainingJ
       timeoutMs: input.timeoutMs ?? config.training.defaultTimeoutMs
     };
 
-    const execution = await executeSshCommand(input.profile, command, options);
-    const durationMs = Date.now() - start;
+    const execution = await executeSshCommand(input.profile, command, options, {
+      tool: "trainClassifier"
+    });
 
     results.push({
       subclass,
       command,
-      durationMs,
       dryRun: false,
-      stdout: execution.stdout,
-      stderr: execution.stderr,
-      exitCode: execution.exitCode,
-      signal: execution.signal
+      ...execution
     });
   }
 

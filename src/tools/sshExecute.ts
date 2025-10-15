@@ -1,58 +1,75 @@
-import { z } from "zod";
-import { Client as SshClient } from "ssh2";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import {
+  executeSshCommand,
+  type SshCommandOptions,
+  type SshCommandResult
+} from "../services/sshService.js";
+
+const SshExecuteInputSchema = z.object({
+  profile: z.string().describe("SSH credential profile to use"),
+  command: z.string().min(1).describe("Command to execute"),
+  cwd: z.string().optional().describe("Working directory on remote host"),
+  env: z.record(z.string(), z.string()).optional().describe("Environment variables for the command"),
+  timeoutMs: z.number().int().positive().optional().describe("Execution timeout in milliseconds"),
+  maxOutputBytes: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("Maximum bytes to capture from stdout/stderr")
+});
+
+const SshExecuteOutputShape = {
+  stdout: z.string(),
+  stderr: z.string(),
+  truncated: z.object({ stdout: z.boolean(), stderr: z.boolean() }),
+  exitCode: z.number().nullable(),
+  signal: z.string().optional(),
+  durationMs: z.number().int().nonnegative()
+};
+
+const SshExecuteOutputSchema = z.object(SshExecuteOutputShape);
 
 export function registerSshTool(server: McpServer): void {
   server.registerTool(
     "sshExecute",
     {
-      description: "Execute a command on a remote server via SSH",
-      inputSchema: {
-        host: z.string().describe("SSH host"),
-        port: z.number().optional().default(22).describe("SSH port"),
-        username: z.string().describe("SSH username"),
-        password: z.string().describe("SSH password"),
-        command: z.string().describe("Command to execute")
-      }
+      description: "Execute a command on a remote server via SSH using a configured profile",
+      inputSchema: SshExecuteInputSchema.shape,
+      outputSchema: SshExecuteOutputShape
     },
-    async (args) => {
-      return new Promise((resolve, reject) => {
-        const conn = new SshClient();
-        conn
-          .on("ready", () => {
-            conn.exec(args.command, (err, stream) => {
-              if (err) {
-                conn.end();
-                reject(err);
-                return;
-              }
+    async (args, extra) => {
+      const options: SshCommandOptions = {
+        cwd: args.cwd,
+        env: args.env,
+        timeoutMs: args.timeoutMs,
+        maxOutputBytes: args.maxOutputBytes
+      };
 
-              let output = "";
+      const result: SshCommandResult = await executeSshCommand(
+        args.profile,
+        args.command,
+        options,
+        {
+          requestId: String(extra.requestId),
+          tool: "sshExecute"
+        }
+      );
 
-              stream
-                .on("close", () => {
-                  conn.end();
-                  resolve({ content: [{ type: "text", text: output }] });
-                })
-                .on("data", (data: Buffer) => {
-                  output += data.toString();
-                })
-                .stderr.on("data", (data: Buffer) => {
-                  output += "STDERR: " + data.toString();
-                });
-            });
-          })
-          .on("error", (err) => {
-            conn.end();
-            reject(err);
-          })
-          .connect({
-            host: args.host,
-            port: args.port,
-            username: args.username,
-            password: args.password
-          });
-      });
+      const structuredContent: Record<string, unknown> = {
+        stdout: result.stdout,
+        stderr: result.stderr,
+        truncated: result.truncated,
+        exitCode: result.exitCode,
+        signal: result.signal,
+        durationMs: result.durationMs
+      };
+
+      return {
+        content: [],
+        structuredContent
+      };
     }
   );
 }

@@ -10,8 +10,8 @@ This is an MCP (Model Context Protocol) server providing resource access via SSH
 
 ## Features
 
-- SSH command execution
-- PostgreSQL database queries
+- SSH command execution enforced through configured profiles, command allowlists, and output quotas
+- PostgreSQL database queries limited to configured connections and statement patterns
 - Classifier training orchestration via SSH profiles
 
 ## Configuration
@@ -25,15 +25,23 @@ Secrets can be provided inline, via environment variables, or read from disk. Ex
 	"sshProfiles": {
 		"training-cluster": {
 			"host": "cluster.example.com",
-			"port": 22,
 			"username": "trainer",
 			"privateKey": {
 				"path": "./secrets/training-cluster.key"
 			},
-			"passphrase": {
-				"env": "TRAINING_CLUSTER_KEY_PASSPHRASE",
-				"optional": true
+			"policy": {
+				"allowedCommands": ["^python\\s+train.py\\b"],
+				"maxExecutionMs": 900000,
+				"maxOutputBytes": 1048576
 			}
+		}
+	},
+	"databaseProfiles": {
+		"training-metadata": {
+			"connectionString": { "env": "TRAINING_METADATA_DB_URL" },
+			"allowedStatements": ["^\\s*SELECT\\b", "^\\s*WITH\\b"],
+			"maxRows": 1000,
+			"maxExecutionMs": 20000
 		}
 	},
 	"training": {
@@ -43,7 +51,8 @@ Secrets can be provided inline, via environment variables, or read from disk. Ex
 }
 ```
 
-- `sshProfiles` define reusable credentials for tools such as `trainClassifier`. For `password`, `privateKey`, or `passphrase`, supply either a raw string, `{ "env": "VAR_NAME" }`, or `{ "path": "relative/or/absolute" }`. Base64-encoded files are supported with `{ "path": "...", "encoding": "base64" }`.
+- `sshProfiles` define reusable credentials for tools such as `sshExecute` and `trainClassifier`. For `password`, `privateKey`, or `passphrase`, supply either a raw string, `{ "env": "VAR_NAME" }`, or `{ "path": "relative/or/absolute" }`. Base64-encoded files are supported with `{ "path": "...", "encoding": "base64" }`. Policies control command allowlists, maximum runtime, and captured output size.
+- `databaseProfiles` centralise PostgreSQL access. Statements must match the configured regex allowlists and respect row/time limits.
 - `training` controls defaults for classifier jobs.
 
 ## Integration
@@ -62,7 +71,8 @@ Build the project (`npm run build`) and use the simulator to exercise tools loca
 
 ```bash
 npm run simulate -- list
-npm run simulate -- call sshExecute '{"host":"localhost","username":"user","password":"pass","command":"ls"}'
+npm run simulate -- call sshExecute '{"profile":"training-cluster","command":"python train.py --help"}'
+npm run simulate -- call dbQuery '{"profile":"training-metadata","query":"SELECT * FROM jobs LIMIT 5"}'
 ```
 
 Override defaults with environment variables:
