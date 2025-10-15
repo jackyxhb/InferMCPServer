@@ -55,3 +55,18 @@ For VS Code GitHub Copilot: Add to `mcp.json` in `.vscode` folder.
 ## Debugging
 
 You can debug this MCP server using VS Code's debugger.
+
+## Simulator
+
+Build the project (`npm run build`) and use the simulator to exercise tools locally without an agent client:
+
+```bash
+npm run simulate -- list
+npm run simulate -- call sshExecute '{"host":"localhost","username":"user","password":"pass","command":"ls"}'
+```
+
+Override defaults with environment variables:
+
+- `MCP_SERVER_COMMAND` – binary to launch (default `node`)
+- `MCP_SERVER_ARGS` – comma-separated arguments (default `build/index.js`)
+- `MCP_SERVER_CWD` – working directory for the spawned server

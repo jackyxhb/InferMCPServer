@@ -8,7 +8,8 @@
     "start": "node build/index.js",
     "lint": "eslint \"src/**/*.ts\"",
     "lint:fix": "npm run lint -- --fix",
-    "test": "vitest run"
+    "test": "vitest run",
+    "simulate": "node build/simulator.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "latest",
