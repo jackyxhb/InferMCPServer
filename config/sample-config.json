@@ -1,0 +1,20 @@
+{
+  "sshProfiles": {
+    "training-cluster": {
+      "host": "cluster.example.com",
+      "port": 22,
+      "username": "trainer",
+      "privateKey": {
+        "path": "./secrets/training-cluster.key"
+      },
+      "passphrase": {
+        "env": "TRAINING_CLUSTER_KEY_PASSPHRASE",
+        "optional": true
+      }
+    }
+  },
+  "training": {
+    "defaultCommandTemplate": "python train.py --dataset={{datasetPath}} --class={{subclass}}",
+    "defaultTimeoutMs": 600000
+  }
+}

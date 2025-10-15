@@ -27,9 +27,12 @@ export async function executeSshCommand(
   const connectionConfig: ConnectConfig = {
     host: profile.host,
     port: profile.port,
-    username: profile.username,
-    readyTimeout: options.timeoutMs
+    username: profile.username
   };
+
+  if (options.timeoutMs) {
+    connectionConfig.readyTimeout = options.timeoutMs;
+  }
 
   if (profile.privateKey) {
     connectionConfig.privateKey = profile.privateKey;

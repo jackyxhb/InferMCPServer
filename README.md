@@ -16,7 +16,9 @@ This is an MCP (Model Context Protocol) server providing resource access via SSH
 
 ## Configuration
 
-The server loads configuration from either `INFER_MCP_CONFIG_PATH` (JSON file) or `INFER_MCP_CONFIG` (JSON string). Example content:
+The server loads configuration from either `INFER_MCP_CONFIG_PATH` (JSON file) or `INFER_MCP_CONFIG` (inline JSON string). A starter config is available at `config/sample-config.json`; copy `.env.example` to `.env` and update paths/secrets as needed.
+
+Secrets can be provided inline, via environment variables, or read from disk. Example:
 
 ```json
 {
@@ -25,7 +27,13 @@ The server loads configuration from either `INFER_MCP_CONFIG_PATH` (JSON file) o
 			"host": "cluster.example.com",
 			"port": 22,
 			"username": "trainer",
-			"privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----..."
+			"privateKey": {
+				"path": "./secrets/training-cluster.key"
+			},
+			"passphrase": {
+				"env": "TRAINING_CLUSTER_KEY_PASSPHRASE",
+				"optional": true
+			}
 		}
 	},
 	"training": {
@@ -35,7 +43,7 @@ The server loads configuration from either `INFER_MCP_CONFIG_PATH` (JSON file) o
 }
 ```
 
-- `sshProfiles` define reusable credentials for tools such as `trainClassifier`.
+- `sshProfiles` define reusable credentials for tools such as `trainClassifier`. For `password`, `privateKey`, or `passphrase`, supply either a raw string, `{ "env": "VAR_NAME" }`, or `{ "path": "relative/or/absolute" }`. Base64-encoded files are supported with `{ "path": "...", "encoding": "base64" }`.
 - `training` controls defaults for classifier jobs.
 
 ## Integration

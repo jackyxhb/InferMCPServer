@@ -1,6 +1,8 @@
 # settings files
 *.env
 /server_settings.py
+config/secrets/*
+!config/secrets/README.md
 
 # Logs etc.
 *.log
