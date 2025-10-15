@@ -6,9 +6,10 @@
   "scripts": {
     "build": "tsc && chmod 755 build/index.js",
     "start": "node build/index.js",
-  "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
     "lint:fix": "npm run lint -- --fix",
     "test": "vitest run",
+    "test:integration": "cross-env INTEGRATION=1 vitest run tests/integration/**/*.test.ts",
     "simulate": "node build/simulator.js"
   },
   "dependencies": {
@@ -24,6 +25,7 @@
     "@types/ssh2": "^1.15.5",
     "@typescript-eslint/eslint-plugin": "^8.6.0",
     "@typescript-eslint/parser": "^8.6.0",
+    "cross-env": "^7.0.3",
     "eslint": "^9.10.0",
     "eslint-config-prettier": "^9.1.0",
     "prettier": "^3.3.3",

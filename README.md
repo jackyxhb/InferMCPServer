@@ -81,3 +81,12 @@ Override defaults with environment variables:
 - `MCP_SERVER_COMMAND` – binary to launch (default `node`)
 - `MCP_SERVER_ARGS` – comma-separated arguments (default `build/index.js`)
 - `MCP_SERVER_CWD` – working directory for the spawned server
+
+For staging validation, copy `config/staging-config.json`, populate the referenced secrets, and set `INFER_MCP_CONFIG_PATH=$(pwd)/config/staging-config.json` before running `npm run simulate -- …` commands.
+
+## Integration Testing
+
+- Build the project (`npm run build`) so the simulator artifact exists.
+- Configure staging credentials via `INFER_MCP_CONFIG_PATH` or `INFER_MCP_CONFIG` (the staging sample references environment variables and secret files under `config/secrets/`).
+- Run `npm run test:integration` to execute Vitest suites that shell out to the simulator (guarded by `INTEGRATION=1`).
+- The integration suite expects the simulator to list `sshExecute`, `dbQuery`, and `trainClassifier`; extend `tests/integration/` with additional cases as you add tools.

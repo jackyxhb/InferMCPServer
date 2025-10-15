@@ -1,0 +1,48 @@
+{
+  "sshProfiles": {
+    "training-staging": {
+      "host": "staging.cluster.example.com",
+      "port": 22,
+      "username": "trainer",
+      "privateKey": { "path": "./secrets/training-staging.key" },
+      "passphrase": { "env": "TRAINING_STAGING_KEY_PASSPHRASE" },
+      "policy": {
+        "allowedCommands": ["^python\\s+train.py\\b", "^tail\\s+-n\\s+100\\s+/var/log"],
+        "maxExecutionMs": 900000,
+        "maxOutputBytes": 1048576,
+        "maxConcurrent": 2
+      }
+    },
+    "ops-shell": {
+      "host": "bastion.staging.example.com",
+      "username": "ops",
+      "password": { "env": "OPS_STAGING_PASSWORD" },
+      "policy": {
+        "allowedCommands": ["^uptime", "^df\\s+-h"],
+        "maxExecutionMs": 300000,
+        "maxOutputBytes": 262144,
+        "maxConcurrent": 1
+      }
+    }
+  },
+  "databaseProfiles": {
+    "training-metadata": {
+      "connectionString": { "env": "TRAINING_METADATA_DB_URL" },
+      "allowedStatements": ["^\\s*SELECT\\b", "^\\s*WITH\\b"],
+      "maxRows": 500,
+      "maxExecutionMs": 15000,
+      "maxConcurrent": 2
+    },
+    "audit-log": {
+      "connectionString": { "path": "./secrets/audit-log-url.txt" },
+      "allowedStatements": ["^\\s*SELECT\\b"],
+      "maxRows": 200,
+      "maxExecutionMs": 10000,
+      "maxConcurrent": 1
+    }
+  },
+  "training": {
+    "defaultCommandTemplate": "python train.py --dataset={{datasetPath}} --class={{subclass}} --epochs=25",
+    "defaultTimeoutMs": 600000
+  }
+}
