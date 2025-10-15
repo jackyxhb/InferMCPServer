@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { runTrainingJob } from "../services/trainingService.js";
+import { runTrainingJob, type TrainingTaskStatus } from "../services/trainingService.js";
+import { SshExecuteOutputSchema } from "./sshExecute.js";
 import { createProgressReporter } from "../utils/progress.js";
 
 const TrainClassifierInputSchema = z.object({
@@ -22,12 +23,49 @@ const TrainClassifierInputSchema = z.object({
 
 type TrainClassifierInput = z.infer<typeof TrainClassifierInputSchema>;
 
+const TrainingStatusValues = ["pending", "running", "succeeded", "failed", "cancelled"] as const satisfies TrainingTaskStatus[];
+const TrainingStatusSchema = z.enum(TrainingStatusValues);
+
+const TrainingTaskLogSchema = z.object({
+  level: z.enum(["info", "warn", "error"]),
+  message: z.string(),
+  at: z.string(),
+  context: z.record(z.string(), z.unknown()).optional()
+});
+
+const TrainingTaskReportSchema = z.object({
+  subclass: z.string(),
+  command: z.string(),
+  dryRun: z.boolean(),
+  status: TrainingStatusSchema,
+  startedAt: z.string().optional(),
+  completedAt: z.string().optional(),
+  result: SshExecuteOutputSchema.optional(),
+  error: z.string().optional(),
+  logs: z.array(TrainingTaskLogSchema)
+});
+
+const TrainingJobReportSchema = z.object({
+  profile: z.string(),
+  datasetPath: z.string(),
+  commandTemplate: z.string(),
+  status: TrainingStatusSchema,
+  startedAt: z.string(),
+  completedAt: z.string().optional(),
+  tasks: z.array(TrainingTaskReportSchema)
+});
+
+const TrainingJobOutputShape = {
+  job: TrainingJobReportSchema
+};
+
 export function registerTrainingTool(server: McpServer): void {
   server.registerTool(
     "trainClassifier",
     {
       description: "Run classifier training commands on a remote host via SSH",
-      inputSchema: TrainClassifierInputSchema.shape
+      inputSchema: TrainClassifierInputSchema.shape,
+      outputSchema: TrainingJobOutputShape
     },
     async (args, extra) => {
       const input = TrainClassifierInputSchema.parse(args);
@@ -55,13 +93,22 @@ export function registerTrainingTool(server: McpServer): void {
 
       progress?.({ progress: total, total, message: "Training job finished" });
 
+      const summaryLines = results.tasks.map((task) => {
+        const status = task.status.toUpperCase();
+        const duration = task.result?.durationMs !== undefined ? `${task.result.durationMs}ms` : "n/a";
+        return `- ${task.subclass}: ${status} (duration: ${duration})`;
+      });
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(results, null, 2)
+            text: [`Training job status: ${results.status.toUpperCase()}`, ...summaryLines].join("\n")
           }
-        ]
+        ],
+        structuredContent: {
+          job: results
+        }
       };
     }
   );

@@ -30,7 +30,7 @@ const SshExecuteOutputShape = {
   durationMs: z.number().int().nonnegative()
 };
 
-const SshExecuteOutputSchema = z.object(SshExecuteOutputShape);
+export const SshExecuteOutputSchema = z.object(SshExecuteOutputShape);
 
 export function registerSshTool(server: McpServer): void {
   server.registerTool(

@@ -23,6 +23,60 @@ export interface DatabaseQueryResult {
 
 const dbConcurrency = new ConcurrencyLimiter();
 
+function validateQuerySafety(query: string): void {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) {
+    throw new Error("Query cannot be empty");
+  }
+
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let semicolonIndex: number | null = null;
+
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const char = trimmed[i];
+    const prev = trimmed[i - 1];
+    const next = trimmed[i + 1];
+    const isEscaped = prev === "\\";
+
+    if (!isEscaped && char === "'" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+      continue;
+    }
+
+    if (!isEscaped && char === '"' && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
+      continue;
+    }
+
+    if (inSingleQuote || inDoubleQuote) {
+      continue;
+    }
+
+    if (char === "-" && next === "-") {
+      throw new Error("Inline SQL comments are not allowed");
+    }
+
+    if (char === "/" && next === "*") {
+      throw new Error("Block SQL comments are not allowed");
+    }
+
+    if (char === ";") {
+      if (semicolonIndex !== null) {
+        throw new Error("Query must be a single statement");
+      }
+      semicolonIndex = i;
+    }
+  }
+
+  if (semicolonIndex !== null) {
+    const trailing = trimmed.slice(semicolonIndex + 1).trim();
+    if (trailing.length > 0) {
+      throw new Error("Query must not contain multiple statements");
+    }
+  }
+}
+
 function ensureQueryAllowed(query: string, patterns?: RegExp[]): void {
   if (!patterns || patterns.length === 0) {
     return;
@@ -50,6 +104,7 @@ export async function executeDatabaseQuery(
     throw new Error(`Database profile '${profileName}' not found`);
   }
 
+  validateQuerySafety(query);
   ensureQueryAllowed(query, profile.allowedStatementPatterns);
 
   const timeoutMs = Math.min(options.timeoutMs ?? profile.maxExecutionMs, profile.maxExecutionMs);

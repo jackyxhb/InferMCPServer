@@ -93,8 +93,22 @@ describe("executeDatabaseQuery", () => {
   it("rejects statements outside the allowlist", async () => {
     const { executeDatabaseQuery } = await import("../src/services/databaseService.js");
 
-    await expect(() => executeDatabaseQuery("analytics", "DELETE FROM data", undefined, {}))
+    await expect(executeDatabaseQuery("analytics", "DELETE FROM data", undefined, {}))
       .rejects.toThrow(/not permitted/i);
+  });
+
+  it("rejects queries with inline comments", async () => {
+    const { executeDatabaseQuery } = await import("../src/services/databaseService.js");
+
+    await expect(executeDatabaseQuery("analytics", "SELECT * FROM table -- comment", undefined, {}))
+      .rejects.toThrow(/comments are not allowed/i);
+  });
+
+  it("rejects multi-statement queries", async () => {
+    const { executeDatabaseQuery } = await import("../src/services/databaseService.js");
+
+    await expect(executeDatabaseQuery("analytics", "SELECT 1; DROP TABLE users", undefined, {}))
+      .rejects.toThrow(/multiple statements/i);
   });
 
   it("enforces row limits and reports truncation", async () => {
@@ -114,5 +128,14 @@ describe("executeDatabaseQuery", () => {
     const queries = pgModule.__getQueryCalls();
     expect(queries[0]?.text).toContain("SET statement_timeout");
     expect(queries[1]?.text).toContain("SELECT");
+  });
+
+  it("allows queries ending with a semicolon", async () => {
+    pgModule.__setQueryRows([{ id: 1 }]);
+
+    const { executeDatabaseQuery } = await import("../src/services/databaseService.js");
+    const result = await executeDatabaseQuery("analytics", "SELECT * FROM data;", undefined, {});
+
+    expect(result.rows).toHaveLength(1);
   });
 });
