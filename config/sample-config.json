@@ -1,5 +1,23 @@
 {
   "sshProfiles": {
+    "local-test": {
+      "host": "127.0.0.1",
+      "port": 22,
+      "username": "tester",
+      "password": {
+        "value": "changeme"
+      },
+      "policy": {
+        "allowedCommands": [
+          "^echo\\b",
+          "^python\\b",
+          "^ls\\b"
+        ],
+        "maxExecutionMs": 300000,
+        "maxOutputBytes": 262144,
+        "maxConcurrent": 1
+      }
+    },
     "training-cluster": {
       "host": "cluster.example.com",
       "port": 22,

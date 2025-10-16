@@ -52,7 +52,7 @@ Secrets can be provided inline, via environment variables, or read from disk. Ex
 }
 ```
 
-- `sshProfiles` define reusable credentials for tools such as `sshExecute` and `trainClassifier`. For `password`, `privateKey`, or `passphrase`, supply either a raw string, `{ "env": "VAR_NAME" }`, or `{ "path": "relative/or/absolute" }`. Base64-encoded files are supported with `{ "path": "...", "encoding": "base64" }`. Policies control command allowlists, maximum runtime, captured output size, and per-profile `maxConcurrent` slots.
+- `sshProfiles` define reusable credentials for tools such as `sshExecute` and `trainClassifier`. For `password`, `privateKey`, or `passphrase`, supply either a raw string, `{ "env": "VAR_NAME" }`, or `{ "path": "relative/or/absolute" }`. Base64-encoded files are supported with `{ "path": "...", "encoding": "base64" }`. Policies control command allowlists, maximum runtime, captured output size, and per-profile `maxConcurrent` slots. The sample config includes a `local-test` profile against `127.0.0.1` with placeholder credentials (`tester` / `changeme`) so you can quickly exercise SSH tooling via a local daemon—update these values before real use.
 - `databaseProfiles` centralise PostgreSQL access. Statements must match the configured regex allowlists and respect row/time limits, with `maxConcurrent` restricting simultaneous queries per profile.
 - `training` controls defaults for classifier jobs.
 
@@ -82,7 +82,7 @@ Override defaults with environment variables:
 - `MCP_SERVER_ARGS` – comma-separated arguments (default `build/index.js`)
 - `MCP_SERVER_CWD` – working directory for the spawned server
 
-For staging validation, copy `config/staging-config.json`, populate the referenced secrets, and set `INFER_MCP_CONFIG_PATH=$(pwd)/config/staging-config.json` before running `npm run simulate -- …` commands.
+For staging validation, copy `config/staging-config.json`, populate the referenced secrets, and set `INFER_MCP_CONFIG_PATH=$(pwd)/config/staging-config.json` before running `npm run simulate -- …` commands. For quick localhost smoke-tests, aim `INFER_MCP_CONFIG_PATH` at `config/sample-config.json`, ensure your SSH server accepts the `local-test` credentials, or tweak that profile to match an existing local account. The server runs in permissive local-test mode by default; set `INFER_MCP_MODE=production` to re-enable SSH policy enforcement for the loopback profile when you deploy.
 
 ## Integration Testing
 

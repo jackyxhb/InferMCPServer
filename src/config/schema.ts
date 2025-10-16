@@ -93,5 +93,6 @@ export interface ResolvedAppConfig {
   sshProfiles: Record<string, ResolvedSshCredential>;
   databaseProfiles: Record<string, ResolvedDatabaseProfile>;
   training: TrainingConfig;
+  localTestMode: boolean;
   raw: AppConfig;
 }

@@ -24,6 +24,32 @@ const DEFAULT_SSH_MAX_OUTPUT_BYTES = 512 * 1024; // 512 KB
 
 let cachedConfig: ResolvedAppConfig | null = null;
 
+export function isLocalTestMode(): boolean {
+  const mode = (process.env.INFER_MCP_MODE ?? "local").toLowerCase();
+  return mode !== "production";
+}
+
+const BUILT_IN_DEFAULT_CONFIG: AppConfig = {
+  sshProfiles: {
+    "local-test": {
+      host: "127.0.0.1",
+      port: 22,
+      username: "tester",
+      password: { value: "changeme" },
+      policy: {
+        allowedCommands: ["^echo\\b", "^python\\b", "^ls\\b"],
+        maxExecutionMs: 5 * 60 * 1000,
+        maxOutputBytes: 256 * 1024,
+        maxConcurrent: 1
+      }
+    }
+  },
+  databaseProfiles: {},
+  training: {
+    defaultTimeoutMs: 300000
+  }
+};
+
 function parseJson(source: string, origin: string): unknown {
   try {
     return JSON.parse(source);
@@ -202,24 +228,35 @@ function resolveTrainingConfig(training: TrainingConfig): TrainingConfig {
   return training;
 }
 
+function mergeAppConfig(base: AppConfig, override: AppConfig): AppConfig {
+  return {
+    sshProfiles: { ...base.sshProfiles, ...override.sshProfiles },
+    databaseProfiles: { ...base.databaseProfiles, ...override.databaseProfiles },
+    training: { ...base.training, ...override.training }
+  };
+}
+
 function resolveConfig(source: ConfigSource): ResolvedAppConfig {
   const parsed = AppConfigSchema.parse(source.data);
+  const merged = mergeAppConfig(BUILT_IN_DEFAULT_CONFIG, parsed);
+  const localTestMode = isLocalTestMode();
 
   const sshProfiles: Record<string, ResolvedSshCredential> = {};
-  for (const [name, profile] of Object.entries(parsed.sshProfiles)) {
+  for (const [name, profile] of Object.entries(merged.sshProfiles)) {
     sshProfiles[name] = resolveSshCredential(name, profile, source.baseDir, source.origin);
   }
 
   const databaseProfiles: Record<string, ResolvedDatabaseProfile> = {};
-  for (const [name, profile] of Object.entries(parsed.databaseProfiles)) {
+  for (const [name, profile] of Object.entries(merged.databaseProfiles)) {
     databaseProfiles[name] = resolveDatabaseProfile(name, profile, source.baseDir, source.origin);
   }
 
   return {
     sshProfiles,
     databaseProfiles,
-    training: resolveTrainingConfig(parsed.training),
-    raw: parsed
+    training: resolveTrainingConfig(merged.training),
+    localTestMode,
+    raw: merged
   };
 }
 

@@ -11,14 +11,25 @@ describe("config loader", () => {
     delete process.env.TRAINING_CLUSTER_PASSWORD;
     delete process.env.TRAINING_CLUSTER_KEY_PASSPHRASE;
     delete process.env.TRAINING_METADATA_DB_URL;
+    delete process.env.INFER_MCP_MODE;
     refreshConfig();
   });
 
   it("returns defaults when no env is provided", () => {
     const config = loadConfig();
-    expect(config.sshProfiles).toEqual({});
+    expect(config.sshProfiles).toHaveProperty("local-test");
+    expect(config.sshProfiles["local-test"].host).toBe("127.0.0.1");
     expect(config.databaseProfiles).toEqual({});
     expect(config.training.defaultTimeoutMs).toBeGreaterThan(0);
+    expect(config.localTestMode).toBe(true);
+  });
+
+  it("disables local test mode when INFER_MCP_MODE=production", () => {
+    process.env.INFER_MCP_MODE = "production";
+    refreshConfig();
+
+    const config = loadConfig();
+    expect(config.localTestMode).toBe(false);
   });
 
   it("resolves secrets from environment variables", () => {

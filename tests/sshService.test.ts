@@ -83,6 +83,7 @@ describe("executeSshCommand", () => {
 
   afterEach(() => {
     delete process.env.INFER_MCP_CONFIG;
+    delete process.env.INFER_MCP_MODE;
     refreshConfig();
     vi.clearAllTimers();
     vi.useRealTimers();
@@ -142,5 +143,37 @@ describe("executeSshCommand", () => {
     } else {
       throw new Error("Expected SSH timeout to reject");
     }
+  });
+
+  it("skips policy checks in local test mode", async () => {
+    process.env.INFER_MCP_CONFIG = JSON.stringify({});
+    refreshConfig();
+
+    const { executeSshCommand } = await import("../src/services/sshService.js");
+    const sshModule = (await import("ssh2")) as unknown as MockClientModule;
+
+    const promise = executeSshCommand("local-test", "cat /etc/passwd");
+    await flushAsync();
+    await flushAsync();
+
+    const stream = sshModule.__instances.at(-1)?.lastExec?.stream;
+    expect(stream).toBeDefined();
+
+    stream!.emit("data", Buffer.from("ok"));
+    stream!.stderr.emit("data", Buffer.from(""));
+    stream!.emit("close", 0);
+
+    const result = await promise;
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("enforces policy when INFER_MCP_MODE=production", async () => {
+    process.env.INFER_MCP_MODE = "production";
+    refreshConfig();
+
+    const { executeSshCommand } = await import("../src/services/sshService.js");
+
+    await expect(executeSshCommand("local-test", "cat /etc/passwd"))
+      .rejects.toThrow(/not permitted/i);
   });
 });
