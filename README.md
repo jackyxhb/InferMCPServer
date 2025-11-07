@@ -2,6 +2,10 @@
 
 This is an MCP (Model Context Protocol) server providing resource access via SSH and RDBMS connections. It is designed to integrate with AI Copilot tools like GitHub Copilot in VS Code and Cursor.
 
+<a href="https://glama.ai/mcp/servers/@jackyxhb/InferMCPServer">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@jackyxhb/InferMCPServer/badge" alt="Infer Server MCP server" />
+</a>
+
 ## Setup
 
 1. Install dependencies: `npm install`
